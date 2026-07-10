@@ -7,6 +7,10 @@ The program is still under development. Stay tuned for more updates!
 
 ## tl;dr
 
+**STILL UNDER DEVELOPMENT. LOTS OF BUGS AND MISSING FEATURES. THERE ISN'T A STABLY USABLE VERSION YET.**
+
+**USE AT YOUR OWN RISK IF YOU WISH TO USE IT RIGHT NOW.**
+
 - All-in-one clipping, auto-transcribing, translating, and rendering tool based on webapp
 - Code done almost entirely by AI agents (Claude Fable 5, Claude Sonnet 5), with me supervising the work
 - requires `api-key` from your selected LLM provider for translation work. Currently supports `OpenAI Format`
