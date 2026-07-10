@@ -4,6 +4,26 @@ All notable changes to the Subtitler app. Each entry names the panel it applies 
 **01 Clips**, **02 Editor**, **03 Export**, **Debug**, **Home** (project list / import screen),
 **Settings**, or **Backend** (pipeline / server, no visible UI).
 
+## v0.2.1 — 2026-07-10 (Clips-panel patch)
+
+### Bug fixes
+
+- **01 Clips** — Saved clips were invisible on the waveform after reloading a project (the
+  data was stored correctly and transcription still worked; only the visualization was
+  missing). Cause: regions were drawn before the audio finished decoding, so they landed on
+  a zero-length timeline. Regions now render on the waveform's `decode` event.
+- **02 Editor** — Same decode-race fixed for the initial line region when opening a project
+  directly into the editor.
+
+### New features
+
+- **01 Clips** — Pressing `I` now stages a visible orange **IN marker** on the timeline; as
+  you play on, the orange region grows with the playhead to show what you're capturing.
+  `O` commits it as an aqua clip; `Esc` cancels the staged in-point. The summary label shows
+  `IN at <time> — O commits · Esc cancels` while staging.
+- **01 Clips** — Timeline panning: drag with the **right mouse button**, or press `←` / `→`
+  to pan by a quarter viewport. Keyboard legend updated.
+
 ## v0.2.0 — 2026-07-10 (Iteration 2)
 
 ### Bug fixes
