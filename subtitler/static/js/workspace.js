@@ -286,7 +286,7 @@ async function setupClipsTab() {
       const dur = ws.getDuration() || project.video_duration;
       if (dur) ws.seekTo(videoEl.currentTime / dur);
     }
-    updatePlayhead();
+    updatePendingRegion();
   });
 
   document.getElementById("tc-end").textContent = fmtTime(project.video_duration);
@@ -311,12 +311,21 @@ async function setupClipsTab() {
 
   startCursorSync(videoEl, ws);
   setupZoomControls("clips", ws, "#track");
+  setupPanControls(ws, "#track");
 
-  renderClipRegions();
+  // v0.2.1: saved regions can only be drawn once the audio is decoded —
+  // adding them right after create() places them on a 0-length timeline,
+  // which made reloaded clips invisible (the data itself was fine).
+  ws.on("decode", () => renderClipRegionsFromClips());
+  wsRegionsPlugin.on("region-updated", (region) => {
+    if (region.id !== PENDING_REGION_ID) syncRegionsToClips();
+  });
+
   renderClipsTable();
   updateClipSummary();
 
   document.getElementById("clear-clips-btn").addEventListener("click", async () => {
+    cancelPendingIn();
     wsRegionsPlugin.getRegions().forEach((r) => r.remove());
     await saveProjectPatch({ clips: [] });
     renderClipsTable();
@@ -329,24 +338,11 @@ async function setupClipsTab() {
   if (!project.clips.length) document.getElementById("translate-clips-btn").disabled = true;
 }
 
-function renderClipRegions() {
-  wsRegionsPlugin.getRegions().forEach((r) => r.remove());
-  const dur = project.video_duration || 1;
-  project.clips.forEach((clip, i) => {
-    wsRegionsPlugin.addRegion({
-      start: clip.start,
-      end: clip.end,
-      color: "rgba(53,217,192,0.25)",
-      content: `Clip ${i + 1}`,
-      drag: true,
-      resize: true,
-    });
-  });
-  wsRegionsPlugin.on("region-updated", (region) => syncRegionsToClips());
-}
-
 function syncRegionsToClips() {
-  const regions = wsRegionsPlugin.getRegions().sort((a, b) => a.start - b.start);
+  const regions = wsRegionsPlugin
+    .getRegions()
+    .filter((r) => r.id !== PENDING_REGION_ID)
+    .sort((a, b) => a.start - b.start);
   project.clips = regions.map((r, i) => ({
     start: r.start,
     end: r.end,
@@ -356,6 +352,87 @@ function syncRegionsToClips() {
   saveProjectPatch({ clips: project.clips });
   renderClipsTable();
   updateClipSummary();
+}
+
+// --- v0.2.1: pending in-point marker (pressing I stages a clip visually) ---
+const PENDING_REGION_ID = "pending-in";
+let pendingRegion = null;
+
+function setPendingIn(t) {
+  cancelPendingIn();
+  pendingIn = t;
+  pendingRegion = wsRegionsPlugin.addRegion({
+    id: PENDING_REGION_ID,
+    start: t,
+    end: t + 0.05,
+    color: "rgba(255,92,31,0.30)",
+    content: "IN · O commits",
+    drag: false,
+    resize: false,
+  });
+  const lab = document.getElementById("clip-summary");
+  lab.textContent = `IN at ${fmtTime(t)} — O commits · Esc cancels`;
+  lab.style.color = "var(--orange)";
+}
+
+function updatePendingRegion() {
+  if (!pendingRegion || pendingIn === null || !videoEl) return;
+  const t = videoEl.currentTime;
+  if (t > pendingIn + 0.05) {
+    try {
+      pendingRegion.setOptions({ start: pendingIn, end: t });
+    } catch (e) {
+      /* older regions builds without setOptions — marker stays a tick */
+    }
+  }
+}
+
+function cancelPendingIn() {
+  if (pendingRegion) {
+    try { pendingRegion.remove(); } catch (e) { /* already gone */ }
+  }
+  pendingRegion = null;
+  pendingIn = null;
+  const lab = document.getElementById("clip-summary");
+  if (lab) lab.style.color = "";
+  updateClipSummary();
+}
+
+// --- v0.2.1: waveform panning (right-mouse drag + arrow keys) ---
+function wsScrollBy(wsInstance, dx) {
+  try {
+    wsInstance.setScroll(Math.max(0, wsInstance.getScroll() + dx));
+  } catch (e) {
+    /* not decoded yet — nothing to pan */
+  }
+}
+
+function panByViewport(wsInstance, containerSelector, fraction) {
+  const container = document.querySelector(containerSelector);
+  const w = container ? container.clientWidth : 600;
+  wsScrollBy(wsInstance, w * fraction);
+}
+
+function setupPanControls(wsInstance, containerSelector) {
+  const container = document.querySelector(containerSelector);
+  if (!container) return;
+  container.addEventListener("contextmenu", (e) => e.preventDefault());
+  let panning = false;
+  let lastX = 0;
+  container.addEventListener("pointerdown", (e) => {
+    if (e.button !== 2) return;
+    panning = true;
+    lastX = e.clientX;
+    e.preventDefault();
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!panning) return;
+    wsScrollBy(wsInstance, lastX - e.clientX);
+    lastX = e.clientX;
+  });
+  window.addEventListener("pointerup", () => {
+    panning = false;
+  });
 }
 
 function addClipRegion(start, end) {
@@ -508,7 +585,9 @@ async function setupEditorTab() {
   renderLinesTable();
   bindInspectorEvents();
   bindOverrideEvents();
-  if (project.lines.length) selectLine(project.lines[0].id);
+  // v0.2.1: same decode-race as the clips regions — the initial line region
+  // is invisible if drawn before the audio finishes decoding.
+  if (project.lines.length) edWs.on("decode", () => selectLine(project.lines[0].id));
 
   setupStylePanel();
   setupOverlayDrag();
@@ -1326,15 +1405,26 @@ function onClipsKeydown(e) {
       videoEl.paused ? videoEl.play() : videoEl.pause();
       break;
     case "i":
-      pendingIn = videoEl.currentTime;
+      setPendingIn(videoEl.currentTime);
       break;
     case "o":
       if (pendingIn !== null) {
         const start = Math.min(pendingIn, videoEl.currentTime);
         const end = Math.max(pendingIn, videoEl.currentTime);
+        cancelPendingIn();
         if (end > start) addClipRegion(start, end);
-        pendingIn = null;
       }
+      break;
+    case "escape":
+      cancelPendingIn();
+      break;
+    case "arrowleft":
+      e.preventDefault();
+      panByViewport(ws, "#track", -0.25);
+      break;
+    case "arrowright":
+      e.preventDefault();
+      panByViewport(ws, "#track", 0.25);
       break;
     case "j":
       videoEl.currentTime = Math.max(0, videoEl.currentTime - 5);
