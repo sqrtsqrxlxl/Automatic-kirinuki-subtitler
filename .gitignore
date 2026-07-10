@@ -1,0 +1,17 @@
+# virtual env
+.venv/
+
+# Claude Code session config
+.claude/
+
+# runtime data: user projects (videos, audio, logs) and settings (contains API key!)
+subtitler/projects/
+subtitler/settings.json
+
+# python
+__pycache__/
+*.pyc
+
+# OS noise
+Thumbs.db
+desktop.ini

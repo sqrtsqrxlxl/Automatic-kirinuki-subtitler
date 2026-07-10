@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitler</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="page" style="max-width: 760px;">
+  <header class="mast">
+    <span class="wordmark">SUBTITLER<i>.</i></span>
+    <span class="spacer"></span>
+    <button class="btn btn-quiet btn-sm" id="settings-btn">Settings ⚙</button>
+  </header>
+  <div class="sunset-band"><span></span><span></span><span></span><span></span></div>
+
+  <section style="margin-top: 32px;">
+    <p class="eyebrow" style="margin-bottom: 10px;">Open a video</p>
+    <div class="import-row">
+      <input type="text" id="video-path" placeholder="D:\Video\interview_tokyo_2026.mkv">
+      <button class="btn btn-primary" id="load-btn">Load video</button>
+    </div>
+    <div id="import-progress" style="display:none;">
+      <div class="progress">
+        <div class="p-lab"><span class="eyebrow" id="import-msg">Working…</span><span class="eyebrow" id="import-pct">0%</span></div>
+        <div class="p-track"><div class="p-fill" id="import-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div class="err-banner" id="import-err" style="display:none;"></div>
+  </section>
+
+  <section style="margin-top: 40px;">
+    <p class="eyebrow" style="margin-bottom: 10px;">Recent projects</p>
+    <div class="recent-list" id="recent-list"></div>
+  </section>
+</div>
+
+<div id="settings-root"></div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/settings.js"></script>
+<script src="/static/js/screen1.js"></script>
+</body>
+</html>

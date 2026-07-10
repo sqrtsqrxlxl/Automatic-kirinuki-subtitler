@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitler — Workspace</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="page">
+  <header class="mast">
+    <a href="/static/index.html" style="text-decoration:none; color: inherit;"><span class="wordmark">SUBTITLER<i>.</i></span></a>
+    <a href="/static/index.html" class="home-link">← Home</a>
+    <span class="crumb" id="crumb"></span>
+    <span class="spacer"></span>
+    <span class="autosave-lab" id="autosave-lab"></span>
+    <button class="btn btn-quiet btn-sm" id="settings-btn">Settings ⚙</button>
+  </header>
+  <div class="sunset-band"><span></span><span></span><span></span><span></span></div>
+
+  <div class="frame">
+    <div class="tabs" id="tabs">
+      <button class="tab" data-tab="clips">01 Clips</button>
+      <button class="tab" data-tab="editor">02 Editor</button>
+      <button class="tab" data-tab="export">03 Export</button>
+      <button class="tab dbg" data-tab="debug">Debug ●</button>
+    </div>
+
+    <!-- ============ 01 CLIPS ============ -->
+    <div class="frame-body" data-panel="clips">
+      <div id="import-progress-panel" style="display:none;">
+        <p class="eyebrow" style="margin-bottom: 10px;">Importing video…</p>
+        <div class="progress">
+          <div class="p-lab"><span class="eyebrow" id="ip-msg">Working…</span><span class="eyebrow" id="ip-pct">0%</span></div>
+          <div class="p-track"><div class="p-fill" id="ip-fill" style="width:0%"></div></div>
+        </div>
+        <p class="eyebrow" style="margin-top: 14px; color: var(--ink-2);">See the Debug tab for step-by-step ffmpeg detail. You can leave — import continues in the background.</p>
+        <div class="err-banner" id="import-panel-err" style="display:none;"></div>
+      </div>
+
+      <div id="clips-normal">
+      <div class="well well-16x9" id="well">
+        <div class="empty">No preview yet</div>
+      </div>
+
+      <div class="timeline">
+        <div class="lab-row">
+          <span class="eyebrow">Timeline — <kbd>I</kbd>/<kbd>O</kbd> mark clips, drag to adjust</span>
+          <span class="zoom-ctl">
+            <button class="style-chip zoom-btn" data-zoom="out" data-track="clips">−</button>
+            <span class="eyebrow zoom-readout" id="clips-zoom-readout">40 px/s</span>
+            <button class="style-chip zoom-btn" data-zoom="in" data-track="clips">+</button>
+          </span>
+          <span class="eyebrow" id="clip-summary" style="color: var(--aqua-ink)"></span>
+        </div>
+        <div class="track" id="track"></div>
+        <div class="tc-row"><span id="tc-0">00:00:00</span><span id="tc-mid">--</span><span id="tc-end">--</span></div>
+      </div>
+
+      <p class="eyebrow keys-lab">Keyboard — mark clips without touching the mouse</p>
+      <div class="keys">
+        <span class="key-item"><kbd>I</kbd> clip in-point at playhead</span>
+        <span class="key-item"><kbd>O</kbd> clip out-point · commits clip</span>
+        <span class="key-item"><kbd>Space</kbd> play / pause</span>
+        <span class="key-item"><kbd>J</kbd> / <kbd>L</kbd> jump −5 s / +5 s</span>
+        <span class="key-item"><kbd>Q</kbd> play the 3 s before playhead</span>
+        <span class="key-item"><kbd>W</kbd> play the 3 s after playhead</span>
+      </div>
+
+      <table class="grid" id="clips-table">
+        <tr><th>Clip</th><th>In</th><th>Out</th><th>Title</th><th>Notes — for your memory only</th><th></th></tr>
+      </table>
+
+      <div class="action-row">
+        <button class="btn btn-quiet btn-sm" id="clear-clips-btn">Clear</button>
+        <span class="spacer"></span>
+        <button class="btn" id="translate-clips-btn">Translate selected clips</button>
+        <button class="btn btn-primary" id="translate-all-btn">Translate whole video</button>
+      </div>
+
+      <div class="progress" id="pipeline-progress" style="display:none;">
+        <div class="p-lab"><span class="eyebrow" id="pipeline-msg">Working…</span><span class="eyebrow" id="pipeline-pct">0%</span></div>
+        <div class="p-track"><div class="p-fill" id="pipeline-fill" style="width:0%"></div></div>
+      </div>
+      <div class="err-banner" id="pipeline-err" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- ============ 02 EDITOR ============ -->
+    <div class="frame-body" data-panel="editor" style="display:none;">
+      <div class="err-banner" id="translation-err-banner" style="display:none;">
+        <div class="row-between">
+          <span id="translation-err-text"></span>
+          <button class="btn btn-quiet btn-sm" id="retry-translation-btn">Retry translation</button>
+        </div>
+        <div class="progress" id="retry-progress" style="display:none;">
+          <div class="p-lab"><span class="eyebrow" id="retry-msg">Working…</span><span class="eyebrow" id="retry-pct">0%</span></div>
+          <div class="p-track"><div class="p-fill" id="retry-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="editor-grid">
+        <div class="well-col">
+          <div class="well" style="aspect-ratio: 16/9;" id="ed-well">
+            <div class="empty">No preview yet</div>
+          </div>
+          <p class="eyebrow drag-hint">Drag the subtitle to reposition · Alt+drag = this line only · drop an image to add an overlay</p>
+          <div class="image-row" id="image-row" style="display:none;">
+            <span class="flab">Selected image</span>
+            <span class="field-inline">Start <input type="text" class="fval" id="img-start" style="width:76px;"></span>
+            <span class="field-inline">End <input type="text" class="fval" id="img-end" style="width:76px;" placeholder="video end"></span>
+            <button class="style-chip" id="img-delete-btn">Delete image</button>
+          </div>
+        </div>
+        <div class="inspector">
+          <div class="two-col">
+            <div class="field"><span class="flab">Start</span><input type="text" class="fval" id="ed-start"></div>
+            <div class="field"><span class="flab">End</span><input type="text" class="fval" id="ed-end"></div>
+          </div>
+          <div class="field"><span class="flab" id="ed-tgt-lab">Translation</span><textarea class="fval" id="ed-text-tgt"></textarea></div>
+          <div class="field"><span class="flab" id="ed-src-lab">Original</span><textarea class="fval" id="ed-text-src" style="color: var(--ink-2);"></textarea></div>
+
+          <div class="field">
+            <span class="flab">Override — this line only</span>
+            <div class="style-grid">
+              <input type="text" class="fval" id="ov-font" placeholder="Font (inherit)" list="font-presets">
+              <input type="number" class="fval" id="ov-size" placeholder="Size (inherit)">
+              <input type="color" class="fval color-in" id="ov-color" title="Text color override">
+              <input type="color" class="fval color-in" id="ov-outline-color" title="Outline color override">
+              <select class="fval" id="ov-position">
+                <option value="">Position: inherit</option>
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+              </select>
+              <button class="style-chip" id="ov-reset-btn">Reset to project style</button>
+            </div>
+          </div>
+
+          <div class="chip-row">
+            <button class="style-chip" id="split-btn">Split at playhead</button>
+            <button class="style-chip" id="merge-btn">Merge ↓</button>
+            <button class="style-chip" id="insert-btn">Insert after</button>
+            <button class="style-chip" id="delete-btn">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="style-panel" id="style-panel">
+        <button class="style-panel-head" id="style-panel-toggle" type="button">
+          <span class="eyebrow">Style — applies to every line</span>
+          <span class="chev" id="style-panel-chev">▾</span>
+        </button>
+        <div class="style-panel-body" id="style-panel-body">
+          <div class="style-grid style-grid-wide">
+            <div class="field"><span class="flab">Font</span><input type="text" class="fval" id="gs-font" list="font-presets"></div>
+            <div class="field"><span class="flab">Size</span><input type="number" class="fval" id="gs-size"></div>
+            <div class="field"><span class="flab">Text color</span><input type="color" class="fval color-in" id="gs-color"></div>
+            <div class="field"><span class="flab">Outline color</span><input type="color" class="fval color-in" id="gs-outline-color"></div>
+            <div class="field"><span class="flab">Outline width</span><input type="number" class="fval" id="gs-outline-width" min="0" max="6"></div>
+            <div class="field"><span class="flab">Position</span>
+              <select class="fval" id="gs-position">
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+                <option value="custom">Custom (drag on video)</option>
+              </select>
+            </div>
+            <div class="field"><span class="flab">Margin V</span><input type="number" class="fval" id="gs-margin-v"></div>
+            <div class="field"><span class="flab">&nbsp;</span><button class="style-chip" id="gs-bilingual-chip">Bilingual</button></div>
+          </div>
+        </div>
+      </div>
+      <datalist id="font-presets">
+        <option value="Microsoft YaHei">
+        <option value="SimHei">
+        <option value="Noto Sans CJK SC">
+        <option value="Yu Gothic">
+        <option value="Meiryo">
+        <option value="MS Gothic">
+        <option value="Arial">
+      </datalist>
+
+      <div class="lab-row" style="margin-top: 20px;">
+        <span class="eyebrow">Waveform — drag region edges to retime</span>
+        <span class="zoom-ctl">
+          <button class="style-chip zoom-btn" data-zoom="out" data-track="editor">−</button>
+          <span class="eyebrow zoom-readout" id="editor-zoom-readout">40 px/s</span>
+          <button class="style-chip zoom-btn" data-zoom="in" data-track="editor">+</button>
+        </span>
+        <button class="style-chip" id="spectrogram-toggle">Spectrogram</button>
+      </div>
+      <div class="waveband" id="ed-track"></div>
+
+      <p class="eyebrow keys-lab">Keyboard — time every line without the mouse</p>
+      <div class="keys">
+        <span class="key-item"><kbd>[</kbd> line start = playhead</span>
+        <span class="key-item"><kbd>]</kbd> line end = playhead</span>
+        <span class="key-item"><kbd>Enter</kbd> commit → next line</span>
+        <span class="key-item"><kbd>Space</kbd> play / pause</span>
+        <span class="key-item"><kbd>Q</kbd> play 3 s before this line</span>
+        <span class="key-item"><kbd>W</kbd> play from this line onward</span>
+        <span class="key-item"><kbd>R</kbd> replay current line</span>
+        <span class="key-item"><kbd>↑</kbd> / <kbd>↓</kbd> previous / next line</span>
+        <span class="key-item"><kbd>+</kbd> / <kbd>−</kbd> zoom waveform in / out</span>
+        <span class="key-item"><kbd>Ctrl+Z</kbd> undo · <kbd>Ctrl+Y</kbd> redo</span>
+      </div>
+
+      <table class="grid" id="lines-table">
+        <tr><th>#</th><th>Start</th><th>End</th><th>CPS</th><th id="col-tgt">Translation</th><th id="col-src">Original</th></tr>
+      </table>
+    </div>
+
+    <!-- ============ 03 EXPORT ============ -->
+    <div class="frame-body" data-panel="export" style="display:none;">
+      <div class="export-grid">
+        <div class="export-card lead">
+          <span class="tag">Default</span>
+          <h3>Video · burned-in MP4</h3>
+          <p>Subtitles rendered into the picture with your editor styling, via ffmpeg.</p>
+          <div class="opt-row" id="mp4-track-opts">
+            <button class="opt on" data-track="translation">译文 only</button>
+            <button class="opt" data-track="original">original only</button>
+            <button class="opt" data-track="bilingual">双语 bilingual</button>
+          </div>
+          <div class="opt-row" id="mp4-scope-opts">
+            <button class="opt on" data-scope="full">full video</button>
+            <button class="opt" data-scope="clips">clips</button>
+          </div>
+          <button class="btn btn-primary" id="export-mp4-btn">Export MP4</button>
+        </div>
+        <div class="export-card">
+          <h3>Subtitle file only</h3>
+          <p>.srt for portability or .ass to keep styling.</p>
+          <div class="opt-row" id="sub-kind-opts">
+            <button class="opt on" data-kind="srt">.srt</button>
+            <button class="opt" data-kind="ass">.ass</button>
+          </div>
+          <div class="opt-row" id="sub-track-opts">
+            <button class="opt on" data-track="translation">译文 only</button>
+            <button class="opt" data-track="original">original only</button>
+            <button class="opt" data-track="bilingual">双语 bilingual</button>
+          </div>
+          <div class="opt-row" id="sub-scope-opts">
+            <button class="opt on" data-scope="full">full video</button>
+            <button class="opt" data-scope="clips">clips</button>
+          </div>
+          <button class="btn" id="export-sub-btn">Export SRT / ASS</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top: 20px; max-width: 480px;">
+        <span class="flab">Output folder</span>
+        <input type="text" class="fval" id="output-dir" placeholder="(defaults to the source video's folder)">
+      </div>
+      <div class="progress" id="export-progress" style="display:none;">
+        <div class="p-lab"><span class="eyebrow" id="export-msg">Working…</span><span class="eyebrow" id="export-pct">0%</span></div>
+        <div class="p-track"><div class="p-fill" id="export-fill" style="width:0%"></div></div>
+      </div>
+      <div id="export-result" style="margin-top: 14px; font-family: var(--mono); font-size: 12px; color: var(--aqua-ink); white-space: pre-wrap;"></div>
+      <div class="err-banner" id="export-err" style="display:none;"></div>
+    </div>
+
+    <!-- ============ DEBUG ============ -->
+    <div class="frame-body" data-panel="debug" style="display:none;">
+      <div class="console">
+        <div class="c-head">
+          <span class="eyebrow">Debug console — mirrors projects/&lt;id&gt;/log.txt</span>
+          <span class="spacer" style="flex:1"></span>
+          <button class="btn btn-quiet btn-sm copy-log-btn">Copy for Claude ⧉</button>
+        </div>
+        <div class="c-body"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="settings-root"></div>
+
+<script src="/static/vendor/wavesurfer.min.js"></script>
+<script src="/static/vendor/regions.min.js"></script>
+<script src="/static/vendor/spectrogram.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/settings.js"></script>
+<script src="/static/js/workspace.js"></script>
+</body>
+</html>
