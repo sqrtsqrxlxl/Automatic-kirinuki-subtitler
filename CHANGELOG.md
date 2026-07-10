@@ -4,6 +4,17 @@ All notable changes to the Subtitler app. Each entry names the panel it applies 
 **01 Clips**, **02 Editor**, **03 Export**, **Debug**, **Home** (project list / import screen),
 **Settings**, or **Backend** (pipeline / server, no visible UI).
 
+## v0.2.3 — 2026-07-10 (double-click launcher)
+
+### New features
+
+- **App** — Double-click launcher (`subtitler/Launch-Subtitler.bat`): starts the app and
+  opens the browser with one click, no terminal needed. On the very first run it sets up its
+  own environment (creates the virtualenv and installs dependencies); afterwards it launches
+  straight away. Warns if Python or ffmpeg are missing. The console window it opens doubles
+  as the on/off switch — close it to stop the app. A `.gitattributes` rule keeps `.bat`
+  files at CRLF line endings so Windows parses them correctly.
+
 ## v0.2.2 — 2026-07-10 (shortcut-sidebar layout)
 
 ### New features

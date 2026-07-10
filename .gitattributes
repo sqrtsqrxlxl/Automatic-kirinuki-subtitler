@@ -1,0 +1,4 @@
+# Windows batch files MUST use CRLF, or cmd.exe mis-parses them line by line
+# (a LF-only .bat corrupts variable assignments and commands — hard to debug).
+*.bat text eol=crlf
+*.cmd text eol=crlf
