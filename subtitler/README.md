@@ -75,4 +75,4 @@ Click **Settings ⚙** on the home screen:
 The **Debug** tab (every screen) mirrors `projects/<id>/log.txt`, including the exact ffmpeg
 commands run — copy it if something needs debugging.
 
-See `BUILD_MANUAL.md` and `ITERATION_2.md` in the parent folder for the full technical spec.
+See `manuals/BUILD_MANUAL.md` and `manuals/ITERATION_2.md` for the full technical spec.

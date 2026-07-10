@@ -1,7 +1,7 @@
 # Subtitler — Iteration 2 Work Orders
 
 You are an implementation agent. The app already exists in `subtitler/` and was built from
-`BUILD_MANUAL.md` (read it first for architecture, data model, file layout, and coding rules —
+`subtitler/manuals/BUILD_MANUAL.md` (read it first for architecture, data model, file layout, and coding rules —
 all of its "Rules for you, the agent" still apply). This document lists the changes for
 iteration 2, based on user testing. Work through the items **in order**; each has a VERIFY
 section. Commit per item if git is initialized; otherwise skip committing.
