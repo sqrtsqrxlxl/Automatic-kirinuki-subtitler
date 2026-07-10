@@ -47,7 +47,10 @@
         <span class="key-item"><span class="key-combo"><kbd>R</kbd></span><span>replay current line</span></span>
         <span class="key-item"><span class="key-combo"><kbd>↑</kbd><span>/</span><kbd>↓</kbd></span><span>previous / next line</span></span>
         <span class="key-item"><span class="key-combo"><kbd>+</kbd><span>/</span><kbd>−</kbd></span><span>zoom waveform in / out</span></span>
-        <span class="key-item"><span class="key-combo"><kbd>Ctrl+Z</kbd></span><span>undo · <kbd>Ctrl+Y</kbd> redo</span></span>
+        <span class="key-item"><span class="key-combo"><kbd>←</kbd><span>/</span><kbd>→</kbd></span><span>pan waveform</span></span>
+        <span class="key-item"><span class="key-combo"><kbd>Right-drag</kbd></span><span>pan waveform (mouse)</span></span>
+        <span class="key-item"><span class="key-combo"><kbd>Ctrl+Z</kbd></span><span>undo</span></span>
+        <span class="key-item"><span class="key-combo"><kbd>Ctrl+Y</kbd></span><span>redo · alt: <kbd>Ctrl+Shift+Z</kbd></span></span>
       </div>
     </div>
     </aside>
@@ -142,22 +145,6 @@
           <div class="field"><span class="flab" id="ed-tgt-lab">Translation</span><textarea class="fval" id="ed-text-tgt"></textarea></div>
           <div class="field"><span class="flab" id="ed-src-lab">Original</span><textarea class="fval" id="ed-text-src" style="color: var(--ink-2);"></textarea></div>
 
-          <div class="field">
-            <span class="flab">Override — this line only</span>
-            <div class="style-grid">
-              <input type="text" class="fval" id="ov-font" placeholder="Font (inherit)" list="font-presets">
-              <input type="number" class="fval" id="ov-size" placeholder="Size (inherit)">
-              <input type="color" class="fval color-in" id="ov-color" title="Text color override">
-              <input type="color" class="fval color-in" id="ov-outline-color" title="Outline color override">
-              <select class="fval" id="ov-position">
-                <option value="">Position: inherit</option>
-                <option value="bottom">Bottom</option>
-                <option value="top">Top</option>
-              </select>
-              <button class="style-chip" id="ov-reset-btn">Reset to project style</button>
-            </div>
-          </div>
-
           <div class="chip-row">
             <button class="style-chip" id="new-line-btn">+ New line at playhead</button>
             <button class="style-chip" id="split-btn">Split at playhead</button>
@@ -168,30 +155,6 @@
         </div>
       </div>
 
-      <div class="style-panel" id="style-panel">
-        <button class="style-panel-head" id="style-panel-toggle" type="button">
-          <span class="eyebrow">Style — applies to every line</span>
-          <span class="chev" id="style-panel-chev">▾</span>
-        </button>
-        <div class="style-panel-body" id="style-panel-body">
-          <div class="style-grid style-grid-wide">
-            <div class="field"><span class="flab">Font</span><input type="text" class="fval" id="gs-font" list="font-presets"></div>
-            <div class="field"><span class="flab">Size</span><input type="number" class="fval" id="gs-size"></div>
-            <div class="field"><span class="flab">Text color</span><input type="color" class="fval color-in" id="gs-color"></div>
-            <div class="field"><span class="flab">Outline color</span><input type="color" class="fval color-in" id="gs-outline-color"></div>
-            <div class="field"><span class="flab">Outline width</span><input type="number" class="fval" id="gs-outline-width" min="0" max="6"></div>
-            <div class="field"><span class="flab">Position</span>
-              <select class="fval" id="gs-position">
-                <option value="bottom">Bottom</option>
-                <option value="top">Top</option>
-                <option value="custom">Custom (drag on video)</option>
-              </select>
-            </div>
-            <div class="field"><span class="flab">Margin V</span><input type="number" class="fval" id="gs-margin-v"></div>
-            <div class="field"><span class="flab">&nbsp;</span><button class="style-chip" id="gs-bilingual-chip">Bilingual</button></div>
-          </div>
-        </div>
-      </div>
       <datalist id="font-presets">
         <option value="Microsoft YaHei">
         <option value="SimHei">
@@ -279,6 +242,52 @@
       </div>
     </div>
     </div>
+    <aside class="style-rail" id="style-rail" aria-label="Line styling" hidden>
+      <div class="rail-ribbon" data-ribbon="global" data-default-open="1">
+        <button class="rail-ribbon-head" type="button">
+          <span class="eyebrow">Global style — all lines</span>
+          <span class="chev">▾</span>
+        </button>
+        <div class="rail-ribbon-body">
+          <div class="style-grid" style="grid-template-columns: 1fr;">
+            <div class="field"><span class="flab">Font</span><input type="text" class="fval" id="gs-font" list="font-presets"></div>
+            <div class="field"><span class="flab">Size</span><input type="number" class="fval" id="gs-size"></div>
+            <div class="field"><span class="flab">Text color</span><input type="color" class="fval color-in" id="gs-color"></div>
+            <div class="field"><span class="flab">Outline color</span><input type="color" class="fval color-in" id="gs-outline-color"></div>
+            <div class="field"><span class="flab">Outline width</span><input type="number" class="fval" id="gs-outline-width" min="0" max="6"></div>
+            <div class="field"><span class="flab">Position</span>
+              <select class="fval" id="gs-position">
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+                <option value="custom">Custom (drag on video)</option>
+              </select>
+            </div>
+            <div class="field"><span class="flab">Margin V</span><input type="number" class="fval" id="gs-margin-v"></div>
+            <div class="field"><span class="flab">&nbsp;</span><button class="style-chip" id="gs-bilingual-chip">Bilingual</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="rail-ribbon" data-ribbon="override" data-default-open="0">
+        <button class="rail-ribbon-head" type="button">
+          <span class="eyebrow">Override — this line</span>
+          <span class="chev">▾</span>
+        </button>
+        <div class="rail-ribbon-body">
+          <div class="style-grid" style="grid-template-columns: 1fr;">
+            <input type="text" class="fval" id="ov-font" placeholder="Font (inherit)" list="font-presets">
+            <input type="number" class="fval" id="ov-size" placeholder="Size (inherit)">
+            <input type="color" class="fval color-in" id="ov-color" title="Text color override">
+            <input type="color" class="fval color-in" id="ov-outline-color" title="Outline color override">
+            <select class="fval" id="ov-position">
+              <option value="">Position: inherit</option>
+              <option value="bottom">Bottom</option>
+              <option value="top">Top</option>
+            </select>
+            <button class="style-chip" id="ov-reset-btn">Reset to project style</button>
+          </div>
+        </div>
+      </div>
+    </aside>
   </div>
 </div>
 

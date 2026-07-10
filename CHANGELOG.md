@@ -4,6 +4,45 @@ All notable changes to the Subtitler app. Each entry names the panel it applies 
 **01 Clips**, **02 Editor**, **03 Export**, **Debug**, **Home** (project list / import screen),
 **Settings**, or **Backend** (pipeline / server, no visible UI).
 
+## v0.2.5 — 2026-07-10 (pending confirmation)
+
+### Bug fixes
+
+- **01 Clips / 02 Editor** — The waveform (and, on the editor tab, the spectrogram overlay)
+  rendered nothing — no peaks, no `<canvas>` elements at all — despite audio decoding
+  successfully (`WaveSurfer.getDuration()` was correct on both instances). Root cause: for the
+  editor tab, `setupEditorTab()` calls `WaveSurfer.create()` on `#ed-track` while its panel is
+  still `display:none` (the panel only becomes visible later, when `showTab()` first runs);
+  WaveSurfer v7's renderer sizes and paints its canvases off the container's actual box via a
+  `ResizeObserver`, and a `display:none` container has no box, so the very first paint pass
+  never happens — and nothing afterward ever tells the renderer to try again, so the canvases
+  stay empty forever even once the panel is shown. (There was in fact a previous, incomplete
+  attempt at this exact fix already in `showTab()` — `edWs.setOptions && null` — which
+  referenced the right method but never called it.) Confirmed by inspecting the WaveSurfer
+  shadow DOM directly: zero `<canvas>` elements under `.wrapper` before the fix, and by
+  confirming `edWs.setOptions({})` (a documented way to force a full re-render without
+  reloading audio) immediately populated real, non-blank canvases. Fix: `showTab()` now calls
+  `edWs.setOptions({})` once, the first time the editor tab is actually shown. The clips tab's
+  `#track` was not actually broken by the same cause (its panel has no `display:none` at
+  creation time and its container already has a real width when `WaveSurfer.create()` runs —
+  confirmed by direct inspection, canvases paint correctly there on load); as a defensive
+  measure `showTab()` applies the same one-time forced-redraw to the clips waveform too.
+
+### New features
+
+- **02 Editor** — The editor waveform (`#ed-track`) can now be panned exactly like the clips
+  timeline: right-mouse drag, or `←`/`→` to pan by a quarter viewport. Added the matching
+  shortcut rows to the editor keyboard legend.
+- **02 Editor** — New right-side styling rail, mirroring the left shortcut sidebar, visible
+  only on the editor tab. It holds two independently expandable ribbons — **"Global style —
+  all lines"** (moved out of the old collapsible panel below the waveform) and **"Override —
+  this line"** (moved out of the inspector) — so the inspector now holds only start/end,
+  translation/original text, and the line action chips. Global defaults to expanded, Override
+  to collapsed; each ribbon's open/closed state persists across reloads via `localStorage`.
+  The rail hangs beyond the body's right edge (the page widens to make room), so the main frame keeps its full width instead of being squeezed.
+  The `Ctrl+Z` undo and `Ctrl+Y` / `Ctrl+Shift+Z` redo shortcuts, previously one combined row
+  in the sidebar, are now listed as two separate rows.
+
 ## v0.2.4 — 2026-07-10 (editor patch)
 
 ### Bug fixes

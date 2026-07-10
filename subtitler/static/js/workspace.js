@@ -186,6 +186,13 @@ function showTab(name) {
     layout.classList.toggle("shortcut-sidebar-hidden", !showSidebar);
     document.querySelectorAll("[data-keys-for]").forEach((b) => (b.hidden = b.dataset.keysFor !== name));
   }
+  const styleRail = document.getElementById("style-rail");
+  if (styleRail && layout) {
+    const showRail = name === "editor";
+    styleRail.hidden = !showRail;
+    layout.classList.toggle("style-rail-visible", showRail);
+    document.querySelector(".workspace-page")?.classList.toggle("style-rail-on", showRail);
+  }
   if (name === "debug") {
     const body = document.querySelector('[data-panel="debug"] .c-body');
     refreshDebugConsole(PROJECT_ID, body);
@@ -197,9 +204,28 @@ function showTab(name) {
       setTimeout(() => (copyBtn.textContent = "Copy for Claude ⧉"), 1500);
     };
   }
-  if (name === "editor" && edWs) setTimeout(() => edWs.setOptions && null, 0);
+  // v0.2.5 bug fix: WaveSurfer.create() is called for the editor tab while
+  // its panel is still display:none (setupEditorTab() runs before the first
+  // showTab()), so the renderer's ResizeObserver sees a 0x0 box and never
+  // paints any <canvas> elements — they stay permanently empty even after
+  // the panel becomes visible, because nothing tells the renderer to
+  // recompute. WaveSurfer.setOptions({}) merges in no new options but does
+  // call the renderer's reRender(), which is the one documented way (short
+  // of destroying/recreating the instance) to force a fresh layout+paint
+  // pass. Only needs to run once per instance, the first time its tab is
+  // actually shown with a real (non-zero) container size.
+  if (name === "editor" && edWs && !edWsRendered) {
+    edWs.setOptions({});
+    edWsRendered = true;
+  }
+  if (name === "clips" && ws && !wsRendered) {
+    ws.setOptions({});
+    wsRendered = true;
+  }
 }
 let currentTab = "clips";
+let wsRendered = false;
+let edWsRendered = false;
 
 // ============================================ shared waveform helpers ===
 // I2-3: smooth cursor tracking while the video plays (timeupdate alone is
@@ -579,6 +605,7 @@ async function setupEditorTab() {
 
   startCursorSync(edVideoEl, edWs);
   setupZoomControls("editor", edWs, "#ed-track");
+  setupPanControls(edWs, "#ed-track");
   setupSpectrogramToggle();
 
   edRegionsPlugin.on("region-updated", (region) => {
@@ -603,6 +630,7 @@ async function setupEditorTab() {
   // is invisible if drawn before the audio finishes decoding.
   if (project.lines.length) edWs.on("decode", () => selectLine(project.lines[0].id));
 
+  setupStyleRail();
   setupStylePanel();
   setupOverlayDrag();
   setupImageDropZone();
@@ -618,13 +646,28 @@ async function setupEditorTab() {
   setupTranslationBanner();
 }
 
+// ============================================== v0.2.5 right-side style rail ===
+// Two independently-collapsible ribbons (global style / per-line override)
+// mirroring the left shortcut sidebar. Open/closed state persists per-ribbon
+// in localStorage so it survives reloads.
+function setupStyleRail() {
+  document.querySelectorAll(".rail-ribbon").forEach((ribbon) => {
+    const key = ribbon.dataset.ribbon;
+    const head = ribbon.querySelector(".rail-ribbon-head");
+    const storeKey = `subtitler-rail-ribbon-${key}`;
+    const stored = localStorage.getItem(storeKey);
+    const open = stored !== null ? stored === "1" : ribbon.dataset.defaultOpen === "1";
+    ribbon.classList.toggle("open", open);
+    head.addEventListener("click", () => {
+      const isOpen = ribbon.classList.toggle("open");
+      localStorage.setItem(storeKey, isOpen ? "1" : "0");
+    });
+  });
+}
+
 // ============================================== I2-10 style panel (global) ===
 function setupStylePanel() {
   syncStylePanelFromProject();
-
-  document.getElementById("style-panel-toggle").addEventListener("click", () => {
-    document.getElementById("style-panel").classList.toggle("collapsed");
-  });
 
   bindGlobalStyleField("gs-font", (v) => (project.style.font = v || project.style.font));
   bindGlobalStyleField("gs-size", (v) => (project.style.size = parseInt(v, 10) || project.style.size));
@@ -1584,6 +1627,14 @@ function onEditorKeydown(e) {
     case "ArrowDown":
       e.preventDefault();
       nextLine();
+      break;
+    case "ArrowLeft":
+      e.preventDefault();
+      panByViewport(edWs, "#ed-track", -0.25);
+      break;
+    case "ArrowRight":
+      e.preventDefault();
+      panByViewport(edWs, "#ed-track", 0.25);
       break;
     case "+":
     case "=":
