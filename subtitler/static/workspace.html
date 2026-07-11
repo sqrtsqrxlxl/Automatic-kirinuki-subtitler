@@ -51,6 +51,7 @@
         <span class="key-item"><span class="key-combo"><kbd>Right-drag</kbd></span><span>pan waveform (mouse)</span></span>
         <span class="key-item"><span class="key-combo"><kbd>Ctrl+Z</kbd></span><span>undo</span></span>
         <span class="key-item"><span class="key-combo"><kbd>Ctrl+Y</kbd></span><span>redo · alt: <kbd>Ctrl+Shift+Z</kbd></span></span>
+        <span class="key-item"><span class="key-combo"><kbd>1–9</kbd><span>/</span><kbd>0</kbd></span><span>assign speaker N / clear speaker</span></span>
       </div>
     </div>
     </aside>
@@ -129,7 +130,7 @@
           <div class="well" style="aspect-ratio: 16/9;" id="ed-well">
             <div class="empty">No preview yet</div>
           </div>
-          <p class="eyebrow drag-hint">Drag the subtitle to reposition · Alt+drag = this line only · drop an image to add an overlay</p>
+          <p class="eyebrow drag-hint">Drag a subtitle to reposition it — a speaker-assigned line moves that speaker's preset (all their lines), a default line moves the global style · Alt+drag = this line only · drop an image to add an overlay</p>
           <div class="image-row" id="image-row" style="display:none;">
             <span class="flab">Selected image</span>
             <span class="field-inline">Start <input type="text" class="fval" id="img-start" style="width:76px;"></span>
@@ -145,12 +146,18 @@
           <div class="field"><span class="flab" id="ed-tgt-lab">Translation</span><textarea class="fval" id="ed-text-tgt"></textarea></div>
           <div class="field"><span class="flab" id="ed-src-lab">Original</span><textarea class="fval" id="ed-text-src" style="color: var(--ink-2);"></textarea></div>
 
+          <div class="field"><span class="flab">Speaker</span>
+            <select class="fval" id="ed-speaker">
+              <option value="">Default</option>
+            </select>
+          </div>
+
           <div class="chip-row">
-            <button class="style-chip" id="new-line-btn">+ New line at playhead</button>
-            <button class="style-chip" id="split-btn">Split at playhead</button>
-            <button class="style-chip" id="merge-btn">Merge ↓</button>
-            <button class="style-chip" id="insert-btn">Insert after</button>
-            <button class="style-chip" id="delete-btn">Delete</button>
+            <button class="action-chip create" id="new-line-btn" title="Create a new empty line at the video playhead (N)">⏱️ New at playhead</button>
+            <button class="action-chip" id="split-btn" title="Split this line in two at the video playhead">✂️ Split</button>
+            <button class="action-chip" id="merge-btn" title="Merge this line with the next one">🔗 Merge</button>
+            <button class="action-chip create" id="insert-btn" title="Insert a new empty line right after this one">➕ Insert</button>
+            <button class="action-chip danger" id="delete-btn" title="Delete this line">🗑️ Delete</button>
           </div>
         </div>
       </div>
@@ -177,7 +184,7 @@
       <div class="waveband" id="ed-track"></div>
 
       <table class="grid" id="lines-table">
-        <tr><th>#</th><th>Start</th><th>End</th><th>CPS</th><th id="col-tgt">Translation</th><th id="col-src">Original</th></tr>
+        <tr><th>#</th><th>Spk</th><th>Start</th><th>End</th><th>CPS</th><th id="col-tgt">Translation</th><th id="col-src">Original</th></tr>
       </table>
     </div>
 
@@ -285,6 +292,16 @@
             </select>
             <button class="style-chip" id="ov-reset-btn">Reset to project style</button>
           </div>
+        </div>
+      </div>
+      <div class="rail-ribbon" data-ribbon="speakers" data-default-open="0">
+        <button class="rail-ribbon-head" type="button">
+          <span class="eyebrow">Speakers</span>
+          <span class="chev">▾</span>
+        </button>
+        <div class="rail-ribbon-body">
+          <div id="speaker-rows"></div>
+          <button class="action-chip create" id="add-speaker-btn">➕ Add speaker</button>
         </div>
       </div>
     </aside>

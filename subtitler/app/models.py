@@ -26,6 +26,7 @@ class Line(BaseModel):
     text_src: str
     text_tgt: str
     style: StyleOverride | None = None
+    speaker_id: str | None = None
 
 
 class Clip(BaseModel):
@@ -46,6 +47,12 @@ class ProjectStyle(BaseModel):
     bilingual: bool = False
     pos_x: float | None = None  # fraction 0-1 of frame width, bottom-center anchor; None = classic bottom/top+margin
     pos_y: float | None = None  # fraction 0-1 of frame height
+
+
+class Speaker(BaseModel):
+    id: str  # uuid4().hex[:8]
+    name: str  # "Speaker A" etc., user-editable
+    style: StyleOverride = Field(default_factory=StyleOverride)
 
 
 class ImageOverlay(BaseModel):
@@ -70,6 +77,7 @@ class Project(BaseModel):
     clips: list[Clip] = Field(default_factory=list)
     lines: list[Line] = Field(default_factory=list)
     images: list[ImageOverlay] = Field(default_factory=list)
+    speakers: list[Speaker] = Field(default_factory=list)
     style: ProjectStyle = Field(default_factory=ProjectStyle)
     source_lang: str = "ja"
     target_lang: str = "zh"

@@ -15,14 +15,15 @@ let overlayDragging = false; // I2-13: true between overlay pointerdown and poin
 let lastOverlayRenderKey = null; // I2-13: skip redundant overlay DOM writes when nothing changed
 let saveTimer = null;
 let styleSaveTimer = null;
+let speakerSaveTimer = null; // I3-4: debounced PATCH of project.speakers
 
-// I2-9: undo/redo. Snapshots of {lines, style, images}, max 100 entries.
+// I2-9/I3-4: undo/redo. Snapshots of {lines, style, images, speakers}, max 100 entries.
 let undoStack = [];
 let redoStack = [];
 const UNDO_MAX = 100;
 
 function snapshotState() {
-  return JSON.parse(JSON.stringify({ lines: project.lines, style: project.style, images: project.images }));
+  return JSON.parse(JSON.stringify({ lines: project.lines, style: project.style, images: project.images, speakers: project.speakers || [] }));
 }
 
 function pushUndo() {
@@ -35,15 +36,19 @@ function applySnapshot(snap) {
   project.lines = snap.lines;
   project.style = snap.style;
   project.images = snap.images || [];
+  project.speakers = snap.speakers || [];
   if (selectedLineId && !project.lines.find((l) => l.id === selectedLineId)) {
     selectedLineId = project.lines.length ? project.lines[0].id : null;
   }
   refreshLineUI();
   syncStylePanelFromProject();
   renderImageOverlays();
+  renderSpeakerRail();
+  renderSpeakerDropdown();
   updateOverlay();
   scheduleAutosave();
   scheduleStyleSave();
+  scheduleSpeakerSave();
 }
 
 function doUndo() {
@@ -204,28 +209,33 @@ function showTab(name) {
       setTimeout(() => (copyBtn.textContent = "Copy for Claude ⧉"), 1500);
     };
   }
-  // v0.2.5 bug fix: WaveSurfer.create() is called for the editor tab while
-  // its panel is still display:none (setupEditorTab() runs before the first
-  // showTab()), so the renderer's ResizeObserver sees a 0x0 box and never
-  // paints any <canvas> elements — they stay permanently empty even after
-  // the panel becomes visible, because nothing tells the renderer to
-  // recompute. WaveSurfer.setOptions({}) merges in no new options but does
-  // call the renderer's reRender(), which is the one documented way (short
-  // of destroying/recreating the instance) to force a fresh layout+paint
-  // pass. Only needs to run once per instance, the first time its tab is
-  // actually shown with a real (non-zero) container size.
-  if (name === "editor" && edWs && !edWsRendered) {
-    edWs.setOptions({});
-    edWsRendered = true;
+  // v0.2.5/v0.2.6 bug fix: WaveSurfer.create() can run while the tab's panel
+  // is still display:none (0x0 box -> the renderer's ResizeObserver never
+  // paints, and nothing retries). setOptions({}) forces a re-render. The
+  // v0.2.5 once-per-instance guard had a residual race: if the first tab-show
+  // happened BEFORE audio decode finished, the forced redraw painted nothing
+  // and the flag blocked every retry. Now: re-render on EVERY show of the
+  // tab (idempotent, cheap), and each instance also re-renders on its own
+  // 'decode' event (wired in forceRenderOnDecode) so whichever happens last
+  // — decode or visibility — triggers the paint.
+  if (name === "editor" && edWs) {
+    try { edWs.setOptions({}); } catch (e) { /* not decoded yet — decode handler will paint */ }
   }
-  if (name === "clips" && ws && !wsRendered) {
-    ws.setOptions({});
-    wsRendered = true;
+  if (name === "clips" && ws) {
+    try { ws.setOptions({}); } catch (e) { /* not decoded yet — decode handler will paint */ }
   }
 }
 let currentTab = "clips";
-let wsRendered = false;
-let edWsRendered = false;
+
+// v0.2.6: whichever comes last — audio decode or the tab becoming visible —
+// must trigger the paint. showTab() covers visibility; this covers decode.
+function forceRenderOnDecode(inst, tabName) {
+  inst.on("decode", () => {
+    if (currentTab === tabName) {
+      try { inst.setOptions({}); } catch (e) { /* ignore */ }
+    }
+  });
+}
 
 // ============================================ shared waveform helpers ===
 // I2-3: smooth cursor tracking while the video plays (timeupdate alone is
@@ -350,6 +360,7 @@ async function setupClipsTab() {
   });
 
   startCursorSync(videoEl, ws);
+  forceRenderOnDecode(ws, "clips");
   setupZoomControls("clips", ws, "#track");
   setupPanControls(ws, "#track");
 
@@ -604,6 +615,7 @@ async function setupEditorTab() {
   });
 
   startCursorSync(edVideoEl, edWs);
+  forceRenderOnDecode(edWs, "editor");
   setupZoomControls("editor", edWs, "#ed-track");
   setupPanControls(edWs, "#ed-track");
   setupSpectrogramToggle();
@@ -636,6 +648,7 @@ async function setupEditorTab() {
   setupImageDropZone();
   bindImageRowEvents();
   renderImageOverlays();
+  setupSpeakers();
 
   document.getElementById("new-line-btn").addEventListener("click", createNewLineAtPlayhead);
   document.getElementById("split-btn").addEventListener("click", splitAtPlayhead);
@@ -784,21 +797,33 @@ function bindOverrideField(id, field, isNumber) {
 }
 
 // ==================================================== I2-10 drag-to-position ===
+// I2-10/I3-4.5/I3-5: overlay drag, delegated per line-block (updateOverlay
+// rebuilds the blocks on every content change, so listeners are bound on the
+// container, not the transient child elements). Routing:
+//   Alt+drag              -> this line's own override (unchanged from I2-10)
+//   plain drag, has speaker -> that speaker's preset (moves ALL its lines)
+//   plain drag, line already had its own pos override -> keep updating it
+//   plain drag, default line -> the global project style (unchanged)
 function setupOverlayDrag() {
   const overlay = document.getElementById("sub-overlay");
   let dragging = false;
   let altDrag = false;
   let pushedForDrag = false;
+  let dragEl = null;
+  let dragLineId = null;
 
   overlay.addEventListener("pointerdown", (e) => {
-    if (!overlay.dataset.lineId) return;
+    const block = e.target.closest(".line-block");
+    if (!block) return;
     dragging = true;
+    dragEl = block;
+    dragLineId = block.dataset.lineId;
     overlayDragging = true; // I2-13: updateOverlay() must not fight the drag while this is true
     altDrag = e.altKey;
     pushedForDrag = false;
-    overlay.classList.add("dragging");
+    dragEl.classList.add("dragging");
     try {
-      overlay.setPointerCapture(e.pointerId);
+      dragEl.setPointerCapture(e.pointerId);
     } catch (err) {
       // ignore — not fatal, pointermove/pointerup listeners still work as
       // long as the pointer stays over the element
@@ -807,7 +832,7 @@ function setupOverlayDrag() {
   });
 
   overlay.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
+    if (!dragging || !dragEl) return;
     if (!pushedForDrag) {
       pushUndo();
       pushedForDrag = true;
@@ -819,36 +844,45 @@ function setupOverlayDrag() {
     const posX = Math.min(0.98, Math.max(0.02, px / rect.width));
     const posY = Math.min(0.98, Math.max(0.05, py / rect.height));
 
-    overlay.classList.add("custom-pos");
-    overlay.classList.remove("top");
-    overlay.style.left = `${posX * 100}%`;
-    overlay.style.bottom = `${(1 - posY) * 100}%`;
-    overlay.style.transform = "translateX(-50%)";
-    overlay.dataset.dragPosX = posX;
-    overlay.dataset.dragPosY = posY;
+    dragEl.classList.add("custom-pos");
+    if (dragEl.parentElement !== overlay) overlay.appendChild(dragEl); // pull out of its anchor stack while dragging
+    dragEl.style.left = `${posX * 100}%`;
+    dragEl.style.bottom = `${(1 - posY) * 100}%`;
+    dragEl.style.transform = "translateX(-50%)";
+    dragEl.dataset.dragPosX = posX;
+    dragEl.dataset.dragPosY = posY;
   });
 
   const finishDrag = () => {
     if (!dragging) return;
     dragging = false;
-    overlay.classList.remove("dragging");
-    if (overlay.dataset.dragPosX === undefined) {
+    if (dragEl) dragEl.classList.remove("dragging");
+    if (!dragEl || dragEl.dataset.dragPosX === undefined) {
       overlayDragging = false;
+      dragEl = null;
       return;
     }
-    const posX = parseFloat(overlay.dataset.dragPosX);
-    const posY = parseFloat(overlay.dataset.dragPosY);
-    delete overlay.dataset.dragPosX;
-    delete overlay.dataset.dragPosY;
+    const posX = parseFloat(dragEl.dataset.dragPosX);
+    const posY = parseFloat(dragEl.dataset.dragPosY);
+    delete dragEl.dataset.dragPosX;
+    delete dragEl.dataset.dragPosY;
+    dragEl = null;
 
-    const line = project.lines.find((l) => l.id === overlay.dataset.lineId);
+    const line = project.lines.find((l) => l.id === dragLineId);
     const lineHasOwnPos = !!(line && line.style && line.style.pos_x != null);
-    if (altDrag || lineHasOwnPos) {
+    const spk = line && line.speaker_id ? (project.speakers || []).find((s) => s.id === line.speaker_id) : null;
+
+    if (altDrag || (!spk && lineHasOwnPos)) {
       if (line) {
         ensureLineStyle(line).pos_x = posX;
         ensureLineStyle(line).pos_y = posY;
       }
       scheduleAutosave();
+    } else if (spk) {
+      spk.style.pos_x = posX;
+      spk.style.pos_y = posY;
+      renderSpeakerRail();
+      scheduleSpeakerSave();
     } else {
       project.style.pos_x = posX;
       project.style.pos_y = posY;
@@ -1060,6 +1094,161 @@ function updateImageRow() {
   document.getElementById("img-end").value = im.end != null ? fmtTime(im.end) : "";
 }
 
+// ============================================================ I3-4 speakers ===
+const SPEAKER_COLORS = ["#FFFFFF", "#35D9C0", "#CDB9F2", "#FF8A55", "#FFD166", "#8AE07A"];
+
+function speakerEffectiveColor(spk) {
+  return (spk.style && spk.style.color) || project.style.color;
+}
+
+function setupSpeakers() {
+  renderSpeakerRail();
+  renderSpeakerDropdown();
+  document.getElementById("add-speaker-btn").addEventListener("click", addSpeaker);
+  document.getElementById("ed-speaker").addEventListener("change", () => {
+    const line = currentLine();
+    if (!line) return;
+    pushUndo();
+    line.speaker_id = document.getElementById("ed-speaker").value || null;
+    renderLinesTable();
+    selectRowOnly(line.id);
+    updateOverlay();
+    scheduleAutosave();
+  });
+}
+
+function addSpeaker() {
+  pushUndo();
+  project.speakers = project.speakers || [];
+  const idx = project.speakers.length;
+  const letter = String.fromCharCode(65 + (idx % 26));
+  const spk = {
+    id: crypto.randomUUID().slice(0, 8),
+    name: `Speaker ${letter}`,
+    style: { font: null, size: null, color: SPEAKER_COLORS[idx % SPEAKER_COLORS.length], outline_color: null, position: null, pos_x: null, pos_y: null },
+  };
+  project.speakers.push(spk);
+  renderSpeakerRail();
+  renderSpeakerDropdown();
+  scheduleSpeakerSave();
+}
+
+function renderSpeakerDropdown() {
+  const sel = document.getElementById("ed-speaker");
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Default</option>' + (project.speakers || []).map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("");
+  const line = currentLine();
+  sel.value = line && line.speaker_id ? line.speaker_id : "";
+}
+
+function renderSpeakerRail() {
+  const container = document.getElementById("speaker-rows");
+  if (!container) return;
+  container.innerHTML = "";
+  (project.speakers || []).forEach((spk) => {
+    const color = speakerEffectiveColor(spk);
+    const row = document.createElement("div");
+    row.className = "speaker-row";
+    row.dataset.speakerId = spk.id;
+    const posVal = spk.style.pos_x != null && spk.style.pos_y != null ? "custom" : spk.style.position || "";
+    row.innerHTML = `
+      <div class="speaker-row-head">
+        <span class="spk-dot" style="background:${color}"></span>
+        <input type="text" class="fval spk-name" value="${escapeAttr(spk.name)}">
+        <button type="button" class="chev-btn" data-toggle title="Expand preset">▾</button>
+        <button type="button" class="action-chip danger" data-remove title="Remove speaker">🗑️</button>
+      </div>
+      <div class="speaker-row-body" hidden>
+        <input type="text" class="fval" data-f="font" placeholder="Font (inherit)" list="font-presets" value="${escapeAttr(spk.style.font || "")}">
+        <input type="number" class="fval" data-f="size" placeholder="Size (inherit)" value="${spk.style.size != null ? spk.style.size : ""}">
+        <input type="color" class="fval color-in" data-f="color" title="Text color" value="${color}">
+        <input type="color" class="fval color-in" data-f="outline_color" title="Outline color" value="${spk.style.outline_color || project.style.outline_color}">
+        <select class="fval" data-f="position">
+          <option value="">Position: inherit</option>
+          <option value="bottom">Bottom</option>
+          <option value="top">Top</option>
+          <option value="custom">Custom (drag on video)</option>
+        </select>
+      </div>`;
+    container.appendChild(row);
+    row.querySelector('select[data-f="position"]').value = posVal;
+
+    row.querySelector(".spk-name").addEventListener("input", () => {
+      pushUndo();
+      spk.name = row.querySelector(".spk-name").value;
+      renderSpeakerDropdown();
+      renderLinesTable();
+      updateOverlay();
+      scheduleSpeakerSave();
+    });
+    row.querySelector("[data-toggle]").addEventListener("click", () => {
+      const body = row.querySelector(".speaker-row-body");
+      body.hidden = !body.hidden;
+    });
+    row.querySelector("[data-remove]").addEventListener("click", () => {
+      if (!confirm(`Remove speaker "${spk.name}"? Its lines revert to the default style.`)) return;
+      pushUndo();
+      project.lines.forEach((l) => {
+        if (l.speaker_id === spk.id) l.speaker_id = null;
+      });
+      project.speakers = project.speakers.filter((s) => s.id !== spk.id);
+      renderSpeakerRail();
+      renderSpeakerDropdown();
+      renderLinesTable();
+      updateOverlay();
+      scheduleAutosave();
+      scheduleSpeakerSave();
+    });
+    row.querySelectorAll(".speaker-row-body [data-f]").forEach((el) => {
+      const evName = el.tagName === "SELECT" || el.type === "color" ? "change" : "input";
+      el.addEventListener(evName, () => {
+        pushUndo();
+        const f = el.dataset.f;
+        if (f === "position") {
+          const val = el.value;
+          if (val === "bottom" || val === "top") {
+            spk.style.position = val;
+            spk.style.pos_x = null;
+            spk.style.pos_y = null;
+          } else if (val === "") {
+            spk.style.position = null;
+          }
+          // "custom" is display-only — actual custom position is set by dragging the overlay
+        } else if (f === "size") {
+          spk.style.size = el.value === "" ? null : parseInt(el.value, 10);
+        } else if (f === "font") {
+          spk.style.font = el.value || null;
+        } else if (f === "color" || f === "outline_color") {
+          spk.style[f] = el.value || null;
+          if (f === "color") row.querySelector(".spk-dot").style.background = speakerEffectiveColor(spk);
+        }
+        renderLinesTable();
+        updateOverlay();
+        scheduleSpeakerSave();
+      });
+    });
+  });
+}
+
+// I3-4.3: digit keys assign/clear the selected line's speaker.
+function assignSpeakerByIndex(n) {
+  const line = currentLine();
+  if (!line) return;
+  let newId = null;
+  if (n !== 0) {
+    const spk = (project.speakers || [])[n - 1];
+    if (!spk) return;
+    newId = spk.id;
+  }
+  pushUndo();
+  line.speaker_id = newId;
+  renderLinesTable();
+  selectRowOnly(line.id);
+  renderSpeakerDropdown();
+  updateOverlay();
+  scheduleAutosave();
+}
+
 // I2-5: banner + retry button when translation didn't fully succeed.
 function setupTranslationBanner() {
   updateTranslationBanner();
@@ -1094,20 +1283,23 @@ function updateTranslationBanner() {
   }
 }
 
-// I2-10: effective per-line style, falling back to the project style field
-// by field (a per-line override may set only some fields).
+// I2-10/I3-3.3: effective per-line style — single source of truth, layered
+// per field: line override > speaker preset > project style.
 function effectiveStyle(line) {
   const s = project.style;
   const ov = line && line.style;
+  const spk = line && line.speaker_id ? (project.speakers || []).find((sp) => sp.id === line.speaker_id) : null;
+  const sv = spk ? spk.style : null;
+  const pick = (a, b, c) => (a != null ? a : b != null ? b : c);
   return {
-    font: (ov && ov.font) || s.font,
-    size: ov && ov.size != null ? ov.size : s.size,
-    color: (ov && ov.color) || s.color,
-    outline_color: (ov && ov.outline_color) || s.outline_color,
+    font: pick(ov && ov.font, sv && sv.font, s.font),
+    size: pick(ov && ov.size, sv && sv.size, s.size),
+    color: pick(ov && ov.color, sv && sv.color, s.color),
+    outline_color: pick(ov && ov.outline_color, sv && sv.outline_color, s.outline_color),
     outline_width: s.outline_width,
-    position: (ov && ov.position) || s.position,
-    pos_x: ov && ov.pos_x != null ? ov.pos_x : s.pos_x,
-    pos_y: ov && ov.pos_y != null ? ov.pos_y : s.pos_y,
+    position: pick(ov && ov.position, sv && sv.position, s.position),
+    pos_x: pick(ov && ov.pos_x, sv && sv.pos_x, s.pos_x),
+    pos_y: pick(ov && ov.pos_y, sv && sv.pos_y, s.pos_y),
   };
 }
 
@@ -1128,59 +1320,68 @@ function strokeFillSpan(cls, text, fontpx, color, outlinePx, outlineColor, fontF
   );
 }
 
+// I3-5: render ALL simultaneously-active lines, not just the first match —
+// speakers can legitimately overlap. Lines with an explicit pos_x/pos_y (from
+// any style layer) render at that position; lines without one stack in their
+// anchor group (bottom-anchored stack upward, top-anchored stack downward).
 function updateOverlay() {
   if (!edVideoEl) return;
   if (overlayDragging) return; // I2-13: the drag handler owns position + content until pointerup
   const t = edVideoEl.currentTime;
   const overlay = document.getElementById("sub-overlay");
   if (!overlay) return;
-  const line = project.lines.find((l) => t >= l.start && t < l.end);
+  const activeLines = project.lines.filter((l) => t >= l.start && t < l.end);
 
-  if (!line) {
+  if (!activeLines.length) {
     if (lastOverlayRenderKey === null) return; // already empty — nothing to do
     lastOverlayRenderKey = null;
-    overlay.style.left = "";
-    overlay.style.bottom = "";
-    overlay.style.transform = "";
     overlay.innerHTML = "";
-    overlay.classList.remove("top", "custom-pos", "has-line");
-    delete overlay.dataset.lineId;
     return;
   }
 
-  const eff = effectiveStyle(line);
-  const key = JSON.stringify([line.id, line.text_tgt, line.text_src, project.style.bilingual, eff]);
+  const effs = activeLines.map(effectiveStyle);
+  const key = JSON.stringify(activeLines.map((l, i) => [l.id, l.text_tgt, l.text_src, project.style.bilingual, effs[i]]));
   if (key === lastOverlayRenderKey) return; // I2-13: identical to what's already on screen — skip the DOM write
   lastOverlayRenderKey = key;
 
-  overlay.dataset.lineId = line.id;
-  overlay.classList.add("has-line");
-
   const videoH = edVideoEl.clientHeight || 300;
-  const fontpx = Math.round((eff.size * videoH) / 1080);
-  const outlinePx = Math.max(0, Math.round((eff.outline_width * videoH) / 1080));
+  overlay.innerHTML = "";
+  const bottomStack = document.createElement("div");
+  bottomStack.className = "anchor-stack bottom";
+  const topStack = document.createElement("div");
+  topStack.className = "anchor-stack top";
 
-  let html = strokeFillSpan("zh", line.text_tgt, fontpx, eff.color, outlinePx, eff.outline_color, eff.font);
-  if (project.style.bilingual) {
-    // ja row keeps its own muted tone (matches the pre-existing look) rather
-    // than the (possibly per-line-overridden) target-text color.
-    html += strokeFillSpan("ja", line.text_src, Math.round(fontpx * 0.6), "#E8D9C4", outlinePx, eff.outline_color);
-  }
-  overlay.innerHTML = html;
+  activeLines.forEach((line, i) => {
+    const eff = effs[i];
+    const fontpx = Math.round((eff.size * videoH) / 1080);
+    const outlinePx = Math.max(0, Math.round((eff.outline_width * videoH) / 1080));
 
-  overlay.style.left = "";
-  overlay.style.bottom = "";
-  overlay.style.transform = "";
-  if (eff.pos_x != null && eff.pos_y != null) {
-    overlay.classList.remove("top");
-    overlay.classList.add("custom-pos");
-    overlay.style.left = `${eff.pos_x * 100}%`;
-    overlay.style.bottom = `${(1 - eff.pos_y) * 100}%`;
-    overlay.style.transform = "translateX(-50%)";
-  } else {
-    overlay.classList.remove("custom-pos");
-    overlay.classList.toggle("top", eff.position === "top");
-  }
+    let html = strokeFillSpan("zh", line.text_tgt, fontpx, eff.color, outlinePx, eff.outline_color, eff.font);
+    if (project.style.bilingual) {
+      // ja row keeps its own muted tone (matches the pre-existing look) rather
+      // than the (possibly per-line-overridden) target-text color.
+      html += strokeFillSpan("ja", line.text_src, Math.round(fontpx * 0.6), "#E8D9C4", outlinePx, eff.outline_color);
+    }
+
+    const block = document.createElement("div");
+    block.className = "line-block has-line";
+    block.dataset.lineId = line.id;
+    block.innerHTML = html;
+
+    if (eff.pos_x != null && eff.pos_y != null) {
+      block.classList.add("custom-pos");
+      block.style.left = `${eff.pos_x * 100}%`;
+      block.style.bottom = `${(1 - eff.pos_y) * 100}%`;
+      overlay.appendChild(block);
+    } else if (eff.position === "top") {
+      topStack.appendChild(block);
+    } else {
+      bottomStack.appendChild(block);
+    }
+  });
+
+  if (bottomStack.children.length) overlay.appendChild(bottomStack);
+  if (topStack.children.length) overlay.appendChild(topStack);
 }
 
 function escapeHtml(s) {
@@ -1198,9 +1399,28 @@ function renderLinesTable() {
     const tr = document.createElement("tr");
     tr.dataset.id = line.id;
     tr.className = line.id === selectedLineId ? "active" : "";
+
+    // I3-4.4: SPK column — colored dot + truncated speaker name.
+    const spk = line.speaker_id ? (project.speakers || []).find((s) => s.id === line.speaker_id) : null;
+    const spkCell = spk
+      ? `<span class="spk-dot" style="background:${speakerEffectiveColor(spk)}"></span><span>${escapeHtml(spk.name.length > 8 ? spk.name.slice(0, 8) + "…" : spk.name)}</span>`
+      : "";
+
+    // I3-6.4: same-speaker overlap warning on the Start cell. Cross-speaker
+    // overlap is legal (I3-6) and gets no warning.
+    let overlapWarn = false;
+    for (let j = i - 1; j >= 0; j--) {
+      if (project.lines[j].speaker_id === line.speaker_id) {
+        if (project.lines[j].end > line.start) overlapWarn = true;
+        break;
+      }
+    }
+    const startTitle = overlapWarn ? ` title="Overlaps the previous line from the same speaker"` : "";
+
     tr.innerHTML = `
       <td class="mono">${i + 1}</td>
-      <td class="mono">${fmtTime(line.start)}</td>
+      <td class="spk-cell">${spkCell}</td>
+      <td class="mono ${overlapWarn ? "start-overlap-warn" : ""}"${startTitle}>${fmtTime(line.start)}</td>
       <td class="mono">${fmtTime(line.end)}</td>
       <td class="mono ${cps > 15 ? "cps-bad" : ""}">${cps.toFixed(1)}</td>
       <td>${escapeHtml(line.text_tgt)}</td>
@@ -1242,6 +1462,7 @@ function fillInspector(line) {
   document.getElementById("ov-color").value = ov.color || project.style.color;
   document.getElementById("ov-outline-color").value = ov.outline_color || project.style.outline_color;
   document.getElementById("ov-position").value = ov.position || "";
+  renderSpeakerDropdown();
 }
 
 // I2-9: re-render the line-dependent UI (table/inspector/region) without
@@ -1353,6 +1574,14 @@ function scheduleStyleSave() {
   }, 500);
 }
 
+// I3-4: debounced PATCH of project.speakers (mirrors scheduleStyleSave).
+function scheduleSpeakerSave() {
+  clearTimeout(speakerSaveTimer);
+  speakerSaveTimer = setTimeout(() => {
+    saveProjectPatch({ speakers: project.speakers || [] });
+  }, 500);
+}
+
 // --- line ops ---
 function splitAtPlayhead() {
   const line = currentLine();
@@ -1369,6 +1598,7 @@ function splitAtPlayhead() {
     text_tgt: line.text_tgt.slice(splitIdx),
     text_src: "",
     style: null,
+    speaker_id: line.speaker_id || null,
   };
   line.end = t;
   line.text_tgt = line.text_tgt.slice(0, splitIdx);
@@ -1401,17 +1631,20 @@ function mergeWithNext() {
 function createNewLineAtPlayhead() {
   if (!edVideoEl) return;
   const t = edVideoEl.currentTime;
-  const covering = project.lines.find((l) => t >= l.start && t < l.end);
+  // I3-6.2: new lines are always Default (speaker_id: null) — the "dodge the
+  // covering line" and "clamp against next" logic must only consider other
+  // Default lines, since overlap protection is now per-speaker.
+  const covering = project.lines.find((l) => l.speaker_id == null && t >= l.start && t < l.end);
   const start = covering ? covering.end : t;
   const next = project.lines
-    .filter((l) => l.start > start)
+    .filter((l) => l.speaker_id == null && l.start > start)
     .sort((a, b) => a.start - b.start)[0];
   let end = start + 1.5;
   if (next && end > next.start) end = next.start;
   if (end <= start) end = start + 0.05; // squeezed extremely tight — still a valid (tiny) line
 
   pushUndo();
-  const newLine = { id: crypto.randomUUID().slice(0, 8), start, end, text_tgt: "", text_src: "", style: null };
+  const newLine = { id: crypto.randomUUID().slice(0, 8), start, end, text_tgt: "", text_src: "", style: null, speaker_id: null };
   let idx = project.lines.findIndex((l) => l.start > start);
   if (idx === -1) idx = project.lines.length;
   project.lines.splice(idx, 0, newLine);
@@ -1427,7 +1660,7 @@ function insertAfter() {
   if (!line) return;
   pushUndo();
   const idx = project.lines.indexOf(line);
-  const newLine = { id: crypto.randomUUID().slice(0, 8), start: line.end, end: line.end + 1.5, text_tgt: "", text_src: "", style: null };
+  const newLine = { id: crypto.randomUUID().slice(0, 8), start: line.end, end: line.end + 1.5, text_tgt: "", text_src: "", style: null, speaker_id: line.speaker_id || null };
   project.lines.splice(idx + 1, 0, newLine);
   renderLinesTable();
   selectLine(newLine.id);
@@ -1657,6 +1890,20 @@ function onEditorKeydown(e) {
         // not ready yet — ignore
       }
       updateZoomReadout("editor");
+      break;
+    case "0":
+    case "1":
+    case "2":
+    case "3":
+    case "4":
+    case "5":
+    case "6":
+    case "7":
+    case "8":
+    case "9":
+      // I3-4.3: digit keys assign speaker N (1-9) / clear to Default (0).
+      e.preventDefault();
+      assignSpeakerByIndex(parseInt(e.key, 10));
       break;
   }
 }

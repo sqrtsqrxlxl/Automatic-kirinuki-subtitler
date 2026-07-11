@@ -81,6 +81,8 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
 .rail-ribbon:not(.open) .rail-ribbon-body { display: none; }
 .rail-ribbon:not(.open) .chev { transform: rotate(-90deg); }
 .rail-ribbon-body { padding: 14px; display: grid; gap: 10px; }
+.rail-ribbon-body > * { min-width: 0; }
+.rail-ribbon-body .fval { min-width: 0; max-width: 100%; }
 .shortcut-sidebar .keys-lab { margin: 0 0 8px; }
 .shortcut-sidebar .shortcut-block + .shortcut-block { margin-top: 16px; }
 .keys.keys-sidebar { display: block; border: 1px solid var(--hair); margin-top: 0; }
@@ -195,6 +197,11 @@ table.grid tr.active td:first-child { box-shadow: inset 3px 0 0 var(--aqua); }
 table.grid tr:hover td { background: color-mix(in srgb, var(--lilac) 22%, transparent); }
 .cps-bad { color: var(--orange); font-weight: 700; }
 table.grid input.cell-edit { width: 100%; border: 1px solid var(--orange); }
+/* I3-6.4: same-speaker overlap warning on the grid's Start cell */
+.start-overlap-warn { color: var(--orange); font-weight: 700; background: color-mix(in srgb, var(--orange) 12%, transparent); }
+/* I3-4.4: SPK column — colored dot + truncated speaker name */
+.spk-cell { white-space: nowrap; font-size: 12px; }
+.spk-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; border: 1px solid var(--hair); vertical-align: middle; }
 
 /* progress */
 .progress { margin-top: 22px; }
@@ -221,11 +228,17 @@ table.grid input.cell-edit { width: 100%; border: 1px solid var(--orange); }
 .field-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
 .field-inline .fval { padding: 4px 6px; font-size: 12px; }
 
-.sub-overlay { position: absolute; left: 0; right: 0; bottom: 6%; text-align: center; padding: 0 4%; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,.5); }
-.sub-overlay.has-line { pointer-events: auto; cursor: grab; }
-.sub-overlay.top { bottom: auto; top: 6%; }
-.sub-overlay.custom-pos { bottom: auto; top: auto; right: auto; text-align: center; padding: 0; width: auto; transform: translateX(-50%); }
-.sub-overlay.dragging { cursor: grabbing; opacity: 0.85; }
+/* I3-5: sub-overlay is now a plain positioning container; each simultaneously
+   active line renders as its own .line-block, either inside an anchor stack
+   (bottom-anchored lines stack upward, top-anchored stack downward) or,
+   for lines with an explicit pos_x/pos_y, positioned directly. */
+.sub-overlay { position: absolute; inset: 0; pointer-events: none; }
+.sub-overlay .anchor-stack { position: absolute; left: 0; right: 0; display: flex; gap: 4px; padding: 0 4%; }
+.sub-overlay .anchor-stack.bottom { bottom: 6%; flex-direction: column-reverse; }
+.sub-overlay .anchor-stack.top { top: 6%; flex-direction: column; }
+.sub-overlay .line-block { text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.5); pointer-events: auto; cursor: grab; }
+.sub-overlay .line-block.custom-pos { position: absolute; left: 0; bottom: 0; text-align: center; transform: translateX(-50%); }
+.sub-overlay .line-block.dragging { cursor: grabbing; opacity: 0.85; }
 
 /* I2-13: duplicated-layer stroke technique — a back "stroke" copy drawn with
    -webkit-text-stroke (which is centered on the glyph edge, so it covers
@@ -251,15 +264,36 @@ table.grid input.cell-edit { width: 100%; border: 1px solid var(--orange); }
 .color-in { padding: 2px; width: 100%; height: 34px; cursor: pointer; }
 @media (max-width: 760px) { .style-grid-wide { grid-template-columns: repeat(2, 1fr); } }
 
+/* I3-4: speaker rows in the right-side style rail */
+.speaker-row + .speaker-row { margin-top: 10px; border-top: 1px solid var(--hair); padding-top: 10px; }
+.speaker-row-head { display: flex; align-items: center; gap: 8px; }
+.speaker-row-head .spk-name { flex: 1; min-width: 0; }
+.chev-btn { background: transparent; border: 1px solid var(--hair); color: var(--ink-2); width: 26px; height: 26px; cursor: pointer; flex-shrink: 0; }
+.speaker-row-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+.speaker-row-body input, .speaker-row-body select { min-width: 0; }
+.speaker-row-body[hidden] { display: none; }
+
 .inspector { border: 1px solid var(--hair); padding: 16px; display: grid; gap: 14px; align-content: start; }
 .field { display: grid; gap: 4px; }
 .field .flab { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
 .field .fval { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
-.field textarea { font-family: var(--grot); font-size: 14px; resize: vertical; min-height: 44px; }
+.field textarea { font-family: var(--grot); font-size: 14px; resize: vertical; min-height: 44px; display: block; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .style-chip { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; border: 1px solid var(--hair); padding: 6px 10px; color: var(--ink-2); font-weight: 600; background: transparent; cursor: pointer; }
 .style-chip.on { border-color: var(--aqua); color: var(--aqua-ink); }
+
+/* I3-2: line-action chips — sentence case, icon-led, quiet Swiss tint coding
+   (not filled): creation chips aqua, delete orange, split/merge neutral. */
+.action-chip {
+  text-transform: none; letter-spacing: 0.02em; font-size: 12px;
+  border: 1px solid var(--hair); padding: 6px 10px; color: var(--ink-2);
+  font-weight: 600; background: transparent; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.action-chip:hover { background: var(--lilac-soft); }
+.action-chip.create { border-color: var(--aqua); color: var(--aqua-ink); }
+.action-chip.danger { border-color: var(--orange); color: var(--orange); }
 .autosave-lab { font-size: 11px; color: var(--ink-2); }
 .autosave-lab.saving { color: var(--orange); }
 

@@ -97,7 +97,7 @@ def api_get_project(project_id: str):
 def api_patch_project(project_id: str, body: dict):
     proj = projects.load_project(project_id)
     data = proj.model_dump()
-    for key in ("clips", "style", "source_lang", "target_lang", "images"):
+    for key in ("clips", "style", "source_lang", "target_lang", "images", "speakers"):
         if key in body:
             data[key] = body[key]
     updated = Project.model_validate(data)

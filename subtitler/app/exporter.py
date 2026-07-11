@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Callable
 
 from . import ffmpeg_utils, logger, projects
-from .models import ImageOverlay, Line, Project
+from .models import ImageOverlay, Line, Project, Speaker
 from .paths import project_dir
 
 Report = Callable[[float, str], None]
@@ -54,14 +55,39 @@ def _hex_to_ass_color(hex_color: str) -> str:
     return f"&H00{b.upper()}{g.upper()}{r.upper()}&"
 
 
-def _effective_pos(style, ov) -> tuple[float, float] | None:
-    """I2-10: per-line \\pos override wins over a global custom position.
-    ASS has no per-style \\pos, so this is applied as a Dialogue override tag."""
+def _resolve(*vals):
+    """First non-None value wins — used to layer style fields line > speaker > global."""
+    for v in vals:
+        if v is not None:
+            return v
+    return None
+
+
+def _effective_pos(style, spk_style, ov) -> tuple[float, float] | None:
+    """I2-10/I3-7: per-line \\pos override wins over the speaker's position,
+    which wins over a global custom position. ASS has no per-style \\pos, so
+    this is applied as a Dialogue override tag."""
     if ov is not None and ov.pos_x is not None and ov.pos_y is not None:
         return ov.pos_x, ov.pos_y
+    if spk_style is not None and spk_style.pos_x is not None and spk_style.pos_y is not None:
+        return spk_style.pos_x, spk_style.pos_y
     if style.pos_x is not None and style.pos_y is not None:
         return style.pos_x, style.pos_y
     return None
+
+
+def _sanitize_style_name(name: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_") or "Speaker"
+    return f"Spk_{safe}"
+
+
+def _style_row(name: str, font, size, color_hex, outline_hex, alignment, style) -> str:
+    col = _hex_to_ass_color(color_hex)
+    oc = _hex_to_ass_color(outline_hex)
+    return (
+        f"Style: {name},{font},{size},{col},{col},{oc},&H00000000,0,0,0,0,100,100,0,0,1,"
+        f"{style.outline_width},0,{alignment},20,20,{style.margin_v},1"
+    )
 
 
 def write_ass(project: Project, lines: list[Line], track: str, out_path: Path) -> None:
@@ -82,24 +108,56 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Default,{style.font},{style.size},{default_color},{default_color},{outline_color},&H00000000,0,0,0,0,100,100,0,0,1,{style.outline_width},0,{alignment},20,20,{style.margin_v},1
 """
 
-    extra_styles = []
+    speakers_by_id: dict[str, Speaker] = {s.id: s for s in project.speakers}
+
+    # I3-7: one Spk_<name> ASS style per speaker referenced by >=1 exported
+    # line, built by layering the speaker preset over the project style.
+    used_speaker_ids = {l.speaker_id for l in lines if l.speaker_id and l.speaker_id in speakers_by_id}
+    speaker_style_rows = []
+    speaker_style_names: dict[str, str] = {}
+    for sid in used_speaker_ids:
+        spk = speakers_by_id[sid]
+        sname = _sanitize_style_name(spk.name)
+        speaker_style_names[sid] = sname
+        sst = spk.style
+        speaker_style_rows.append(
+            _style_row(
+                sname,
+                _resolve(sst.font, style.font),
+                _resolve(sst.size, style.size),
+                _resolve(sst.color, style.color),
+                _resolve(sst.outline_color, style.outline_color),
+                8 if _resolve(sst.position, style.position) == "top" else 2,
+                style,
+            )
+        )
+
+    extra_styles = list(speaker_style_rows)
     dialogue_rows = []
     for line in lines:
-        style_name = "Default"
         ov = line.style
+        spk = speakers_by_id.get(line.speaker_id) if line.speaker_id else None
+        spk_style = spk.style if spk else None
+
         has_text_override = ov is not None and any(
             getattr(ov, f) is not None for f in ("font", "size", "color", "outline_color", "position")
         )
+
         if has_text_override:
+            # I2-10/I3-7: per-line override keeps winning — layered line >
+            # speaker > global, its own dedicated style row.
             style_name = f"Line_{line.id}"
-            sz = ov.size or style.size
-            col = _hex_to_ass_color(ov.color) if ov.color else default_color
-            oc = _hex_to_ass_color(ov.outline_color) if ov.outline_color else outline_color
-            al = 8 if (ov.position or style.position) == "top" else 2
-            font = ov.font or style.font
-            extra_styles.append(
-                f"Style: {style_name},{font},{sz},{col},{col},{oc},&H00000000,0,0,0,0,100,100,0,0,1,{style.outline_width},0,{al},20,20,{style.margin_v},1"
-            )
+            font = _resolve(ov.font, spk_style.font if spk_style else None, style.font)
+            sz = _resolve(ov.size, spk_style.size if spk_style else None, style.size)
+            col = _resolve(ov.color, spk_style.color if spk_style else None, style.color)
+            oc = _resolve(ov.outline_color, spk_style.outline_color if spk_style else None, style.outline_color)
+            pos_field = _resolve(ov.position, spk_style.position if spk_style else None, style.position)
+            al = 8 if pos_field == "top" else 2
+            extra_styles.append(_style_row(style_name, font, sz, col, oc, al, style))
+        elif spk is not None:
+            style_name = speaker_style_names.get(line.speaker_id, "Default")
+        else:
+            style_name = "Default"
 
         text = _line_text(line, track).replace("\n", "\\N")
         if track == "bilingual":
@@ -107,14 +165,15 @@ Style: Default,{style.font},{style.size},{default_color},{default_color},{outlin
             small = int(style.size * 0.6)
             text = f"{zh}\\N{{\\fs{small}}}{ja}"
 
-        pos = _effective_pos(style, ov)
+        pos = _effective_pos(style, spk_style, ov)
         if pos is not None:
             X = round(pos[0] * 1920)
             Y = round(pos[1] * 1080)
             text = f"{{\\an2\\pos({X},{Y})}}" + text
 
+        name_field = spk.name if spk is not None else ""
         dialogue_rows.append(
-            f"Dialogue: 0,{_fmt_ass_time(line.start)},{_fmt_ass_time(line.end)},{style_name},,0,0,0,,{text}"
+            f"Dialogue: 0,{_fmt_ass_time(line.start)},{_fmt_ass_time(line.end)},{style_name},{name_field},0,0,0,,{text}"
         )
 
     body = "\n".join(extra_styles) + ("\n" if extra_styles else "") + \

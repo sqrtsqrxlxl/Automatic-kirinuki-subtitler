@@ -4,6 +4,56 @@ All notable changes to the Subtitler app. Each entry names the panel it applies 
 **01 Clips**, **02 Editor**, **03 Export**, **Debug**, **Home** (project list / import screen),
 **Settings**, or **Backend** (pipeline / server, no visible UI).
 
+## v0.2.6 — 2026-07-11 (pending confirmation)
+
+### Bug fixes
+
+- **02 Editor** — The translation/original textareas in the inspector left a small white
+  gap underneath them, inside the bordered `.field` box. Root cause: a `<textarea>` is an
+  inline-block element by default, so it sits on the text baseline and leaves a
+  descender-height gap below it. Fix: `display: block` on `.field textarea`.
+
+### New features
+
+- **02 Editor** — The five line-action chips (Split / Merge / Insert / New at playhead /
+  Delete) were uppercase micro-text — hard to read at a glance and gave no hint what each
+  one did. They're now sentence case with a leading icon and a full-sentence `title`
+  tooltip, and color-coded per the quiet Swiss "tint, not filled" convention: the two
+  line-creating chips (➕ Insert, ⏱️ New at playhead) read aqua, 🗑️ Delete reads orange,
+  and ✂️ Split / 🔗 Merge stay neutral. Every chip kept its original element id, so no JS
+  bindings changed.
+- **02 Editor / 03 Export / Backend** — **Speakers**, pulled forward from the v3.0
+  roadmap. A speaker is a named style preset (font/size/colors/position) that a line can
+  be assigned to; unassigned lines keep using the project's default style. Speakers live
+  in a new third ribbon on the style rail ("Speakers", collapsed by default) — add one
+  with **➕ Add speaker**, rename it inline, expand it to edit its preset, remove it with
+  a confirm (its lines revert to the default style, which undo can restore). Assign a
+  line to a speaker via the new **Speaker** dropdown in the inspector, or with the
+  keyboard: digits **1–9** assign the Nth speaker to the selected line, **0** clears it
+  back to Default. The subtitle grid gained a narrow **SPK** column (colored dot +
+  truncated name). Style resolution is layered per field everywhere it matters — line
+  override wins over the line's speaker preset, which wins over the project style — used
+  consistently by the live overlay, the grid, and the exported .ass. Dragging a subtitle
+  on the video preview now routes by what's selected: a speaker-assigned line moves that
+  speaker's preset (so all of that speaker's lines move together — the point of "this
+  speaker lives in this corner"), Alt+drag still repositions only the current line, and a
+  Default line still moves the whole project's position, exactly as before.
+  Overlap protection (minimum duration, gap-snapping, no-overlap, and the short-fragment
+  merge pass) now applies **per speaker** instead of globally: two different speakers'
+  lines are allowed to sit on screen at the same time (that's the point — people talking
+  over each other), but two lines from the *same* speaker (including Default) still can't
+  overlap, and the grid tints an overlapping line's Start cell orange exactly like the
+  CPS warning, with a tooltip explaining why. The video overlay now renders every
+  simultaneously-active line at once instead of only the first match, each with its own
+  resolved style — lines without an explicit position stack in their anchor group
+  (bottom-anchored lines stack upward, top-anchored stack downward) so two default-position
+  speakers don't draw on top of each other. Export gained one real ASS `Style: Spk_<name>`
+  per speaker used in the export (speaker preset layered over the project style), with
+  Dialogue rows referencing that style and the speaker's name filled into the Dialogue
+  `Name` field; per-line overrides still win exactly as before, layered over the line's
+  speaker if it has one. SRT export stays plain text with no speaker markup (see the
+  README).
+
 ## v0.2.5 — 2026-07-10 (pending confirmation)
 
 ### Bug fixes

@@ -220,9 +220,23 @@ def segment_and_translate(project_id: str, words: list[Word], project, settings,
     return result_lines, translation_status, translation_error
 
 
+def _next_same_speaker(lines: list[Line], i: int) -> Line | None:
+    """I3-6: overlap/gap protections apply within one speaker's lines only —
+    find the next line (by list order, which is start-sorted) belonging to
+    the same speaker_id as lines[i]. Pipeline output has no speakers, so
+    every line has speaker_id=None and this degenerates to lines[i+1],
+    i.e. identical behavior to pre-I3-6 code."""
+    sid = lines[i].speaker_id
+    for j in range(i + 1, len(lines)):
+        if lines[j].speaker_id == sid:
+            return lines[j]
+    return None
+
+
 def _postprocess(lines: list[Line]) -> None:
     for i, line in enumerate(lines):
-        next_start = lines[i + 1].start if i + 1 < len(lines) else None
+        nxt = _next_same_speaker(lines, i)
+        next_start = nxt.start if nxt is not None else None
         if line.end - line.start < 1.0:
             new_end = line.start + 1.0
             if next_start is not None:
@@ -236,8 +250,10 @@ def _postprocess(lines: list[Line]) -> None:
 
 
 def _merge_fragments(lines: list[Line]) -> int:
-    """I2-6: merge short fragments into the following line so segmentation
-    isn't overly fine. Mutates `lines` in place. Returns the merge count."""
+    """I2-6/I3-6: merge short fragments into the following line so
+    segmentation isn't overly fine. Only merges lines belonging to the SAME
+    speaker (cross-speaker overlap is legal and lines must stay distinct).
+    Mutates `lines` in place. Returns the merge count."""
     merges = 0
     changed = True
     while changed:
@@ -248,7 +264,8 @@ def _merge_fragments(lines: list[Line]) -> int:
             nxt = lines[i + 1]
             dur = line.end - line.start
             gap = nxt.start - line.end
-            if dur < 1.2 and gap < 0.2 and len(line.text_tgt + nxt.text_tgt) <= 30:
+            same_speaker = line.speaker_id == nxt.speaker_id
+            if same_speaker and dur < 1.2 and gap < 0.2 and len(line.text_tgt + nxt.text_tgt) <= 30:
                 nxt.text_src = (line.text_src + " " + nxt.text_src).strip()
                 nxt.text_tgt = (line.text_tgt + nxt.text_tgt).strip()
                 nxt.start = line.start
